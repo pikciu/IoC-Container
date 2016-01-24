@@ -1,21 +1,28 @@
 ﻿using System;
+using System.Reflection;
 
 namespace IoC
 {
     public interface IContainer
     {
-        void Register<TInterface, TImplementation>(LifeCycle lifeCycle = LifeCycle.PerRequest)
-            where TImplementation : TInterface;
+        void Register<TIface, TImpl>(LifeCycle lifeCycle = LifeCycle.PerRequest)
+            where TImpl : TIface;
 
-        void Register<TInterface, TImplementation>(TImplementation implementation)
-            where TImplementation : TInterface; 
+        void Register<TIface, TImpl>(TImpl implementation, LifeCycle lifeCycle = LifeCycle.Singleton)
+            where TImpl : TIface;
 
-        void Register<TImplementation>(TImplementation implementation, LifeCycle lifeCycle = LifeCycle.PerRequest)
-            where TImplementation : class;
+        void Register(Type implmentationType, LifeCycle lifeCycle = LifeCycle.PerRequest);
+
+        void Register<TIface, TImpl>(Func<TImpl> factory, LifeCycle lifeCycle = LifeCycle.PerRequest)
+            where TImpl : TIface;
+
+        void RegisterAssembly(string assemblyName);
+
+        void RegisterAssembly(Assembly assembly);
 
         object Resolve(Type type);
 
-        TImplementation Resolve<TImplementation>()
-            where TImplementation : class;
+        TImpl Resolve<TImpl>()
+            where TImpl : class;
     }
 }

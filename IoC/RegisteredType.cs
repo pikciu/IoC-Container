@@ -19,10 +19,10 @@ namespace IoC
 
         public LifeCycle LifeCycle { get; private set; }
 
-        public object Instance { get; set; }
-
         public Type AsType { get; private set; }
 
         public Type ImplementationType { get; private set; }
+
+        public Func<object> Factory { get; set; }
     }
 }

@@ -7,46 +7,71 @@ namespace IoC
 {
     public class Container : IContainer
     {
+        private readonly bool _overridingAllowed;
         private readonly List<RegisteredType> _registeredTypes;
 
-        public Container()
+        public Container(bool allowOverride = false)
         {
             _registeredTypes = new List<RegisteredType>();
+            _overridingAllowed = allowOverride;
         }
 
-        public void Register<TInterface, TImplementation>(LifeCycle lifeCycle = LifeCycle.PerRequest)
-            where TImplementation : TInterface
+        public void Register<TIface, TImpl>(LifeCycle lifeCycle = LifeCycle.PerRequest)
+            where TImpl : TIface
         {
-            CheckType(typeof(TInterface));
-
-            var newType = new RegisteredType(typeof(TInterface), typeof(TImplementation), lifeCycle);
+            CheckType(typeof(TIface));
+            var newType = new RegisteredType(typeof(TIface), typeof(TImpl), lifeCycle);
             _registeredTypes.Add(newType);
         }
 
-        public void Register<TInterface, TImplementation>(TImplementation implementation)
-            where TImplementation : TInterface
+        public void Register<TIface, TImpl>(TImpl implementation, LifeCycle lifeCycle = LifeCycle.Singleton)
+            where TImpl : TIface
         {
-            CheckType(typeof(TInterface));
-
-            var newType = new RegisteredType(typeof(TInterface), typeof(TImplementation), LifeCycle.Singleton)
+            CheckType(typeof(TIface));
+            var newType = new RegisteredType(typeof(TIface), typeof(TImpl), lifeCycle);
+            if (newType.LifeCycle == LifeCycle.Singleton)
             {
-                Instance = implementation
+                newType.Factory = () => implementation;
+            }
+            _registeredTypes.Add(newType);
+        }
+
+        public void Register(Type implmentationType, LifeCycle lifeCycle = LifeCycle.PerRequest)
+        {
+            CheckType(implmentationType);
+            var newType = new RegisteredType(implmentationType, lifeCycle);
+            _registeredTypes.Add(newType);
+        }
+
+        public void Register<TIface, TImpl>(Func<TImpl> factory, LifeCycle lifeCycle = LifeCycle.PerRequest)
+            where TImpl : TIface
+        {
+            CheckType(typeof(TIface));
+            var newType = new RegisteredType(typeof(TIface), typeof(TImpl), lifeCycle)
+            {
+                Factory = () => factory()
             };
             _registeredTypes.Add(newType);
         }
 
-        public void Register<TImplementation>(TImplementation implementation, LifeCycle lifeCycle = LifeCycle.PerRequest)
-            where TImplementation : class
+        public void RegisterAssembly(string assemblyName)
         {
-            CheckType(typeof(TImplementation));
+            Assembly assembly = Assembly.Load(new AssemblyName(assemblyName));
 
-            var newType = new RegisteredType(typeof(TImplementation), lifeCycle);
-            if (lifeCycle == LifeCycle.Singleton)
+            RegisterAssembly(assembly);
+        }
+
+        public void RegisterAssembly(Assembly assembly)
+        {
+            Type installerType = assembly.ExportedTypes.FirstOrDefault(x => x.GetTypeInfo().ImplementedInterfaces.Contains(typeof(IAssemblyInstaller)));
+
+            if (installerType == null)
             {
-                newType.Instance = implementation;
+                throw new InvalidOperationException($"Installer not found in {assembly.FullName}");
             }
+            var installer = (IAssemblyInstaller)Activator.CreateInstance(installerType);
 
-            _registeredTypes.Add(newType);
+            installer.Install(this);
         }
 
         public object Resolve(Type type)
@@ -54,26 +79,28 @@ namespace IoC
             RegisteredType registeredType = _registeredTypes.FirstOrDefault(p => p.AsType == type);
             if (registeredType == null)
             {
-                throw new InvalidOperationException(string.Format("Type {0} not registered.", type.Name));
+                throw new InvalidOperationException($"Type {type.Name} not registered.");
             }
 
             if (registeredType.LifeCycle == LifeCycle.Singleton)
             {
-                if (registeredType.Instance == null)
-                {
-                    registeredType.Instance = GetInstance(registeredType.ImplementationType);
-                }
+                object instance = registeredType.Factory == null ? GetInstance(registeredType.ImplementationType) : registeredType.Factory();
+                registeredType.Factory = () => instance;
+                return registeredType.Factory();
+            }
 
-                return registeredType.Instance;
+            if (registeredType.Factory != null)
+            {
+                return registeredType.Factory();
             }
 
             return GetInstance(registeredType.ImplementationType);
         }
 
-        public TImplementation Resolve<TImplementation>()
-            where TImplementation : class
+        public TImpl Resolve<TImpl>()
+            where TImpl : class
         {
-            return (TImplementation)Resolve(typeof(TImplementation));
+            return (TImpl)Resolve(typeof(TImpl));
         }
 
         private object GetInstance(Type type)
@@ -85,15 +112,27 @@ namespace IoC
 
         private object[] GetConstructorParameters(Type type)
         {
-            ConstructorInfo constructorInfo = type.GetConstructors().First();
+            ConstructorInfo constructorInfo = type.GetConstructors().FirstOrDefault();
+            if (constructorInfo == null)
+            {
+                return new object[0];
+            }
             return constructorInfo.GetParameters().Select(parameter => Resolve(parameter.ParameterType)).ToArray();
         }
 
         private void CheckType(Type type)
         {
-            if (_registeredTypes.Any(p => p.AsType == type))
+            RegisteredType registered = _registeredTypes.FirstOrDefault(p => p.AsType == type);
+            if (registered != null)
             {
-                throw new InvalidOperationException(string.Format("Type {0} already registered.", type.Name));
+                if (_overridingAllowed)
+                {
+                    _registeredTypes.Remove(registered);
+                }
+                else
+                {
+                    throw new InvalidOperationException($"Type {type.Name} already registered.");
+                }
             }
         }
     }
